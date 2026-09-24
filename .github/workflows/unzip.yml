@@ -3,6 +3,7 @@ name: Unzip & Deploy Pages
 on:
   push:
     branches: [main]
+    paths: ['*.zip']
   workflow_dispatch:
     inputs:
       zip_url:
@@ -21,8 +22,6 @@ concurrency:
 
 jobs:
   unzip-deploy:
-    # push 时仓库里没有 zip 就跳过（首次提交 workflow 文件本身不会红叉）
-    if: ${{ github.event_name == 'workflow_dispatch' || hashFiles('*.zip') != '' }}
     runs-on: ubuntu-latest
     environment:
       name: github-pages
