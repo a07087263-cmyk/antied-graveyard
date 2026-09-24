@@ -1,0 +1,79 @@
+# .github/workflows/unzip.yml
+name: Unzip & Deploy Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      zip_url:
+        description: 'Release zip direct URL (e.g. https://x0.at/xxxx.zip) - leave empty to use the newest zip in the repo'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  unzip-deploy:
+    # push 时仓库里没有 zip 就跳过（首次提交 workflow 文件本身不会红叉）
+    if: ${{ github.event_name == 'workflow_dispatch' || hashFiles('*.zip') != '' }}
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get release zip
+        env:
+          ZIP_URL: ${{ inputs.zip_url }}
+        run: |
+          if [ -n "$ZIP_URL" ]; then
+            echo "Downloading zip from URL..."
+            curl -fsSL -A "github-actions" -o release.zip "$ZIP_URL"
+          else
+            ZIP=$(ls *release*.zip 2>/dev/null | sort -V | tail -1)
+            [ -n "$ZIP" ] || ZIP=$(ls *.zip 2>/dev/null | sort -V | tail -1)
+            if [ -z "$ZIP" ]; then
+              echo "::error::No zip in repo root and no zip_url given"
+              exit 1
+            fi
+            echo "Using repo zip: $ZIP"
+            cp "$ZIP" release.zip
+          fi
+
+      - name: Unzip into site/
+        run: |
+          mkdir -p site
+          unzip -qo release.zip -d site
+          cd site
+          # 若 zip 有一层顶层包裹目录，展开它
+          if [ "$(ls -A | wc -l)" -eq 1 ] && [ -d "$(ls -A)" ]; then
+            inner=$(ls -A)
+            mv "$inner"/* ./
+            rmdir "$inner"
+          fi
+          rm -f CHANGES-*.patch
+          touch .nojekyll
+          echo "--- deployed files ---"
+          find . -type f | sort
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
